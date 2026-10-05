@@ -1,9 +1,8 @@
-import pickle
+import joblib
 import numpy as np
 import streamlit as st
 from PIL import Image
 
-# Configuración de la página
 st.set_page_config(
     page_title="Detección de Melanoma", page_icon="🩺", layout="centered"
 )
@@ -14,17 +13,14 @@ st.write(
 )
 
 
-# Carga con pickle directo en modo binario "rb" para evitar el bug de joblib/_io.BytesIO
+# Carga con respaldo automático entre joblib y pickle
 @st.cache_resource
 def load_model():
-    # Intentamos primero con dill (si el modelo incluye lambdas/custom layers)
     try:
-        import dill
-
-        with open("mimodelo.pkl", "rb") as f:
-            return dill.load(f)
+        return joblib.load("mimodelo.pkl")
     except Exception:
-        # Respaldo con pickle estándar
+        import pickle
+
         with open("mimodelo.pkl", "rb") as f:
             return pickle.load(f)
 
@@ -32,29 +28,24 @@ def load_model():
 try:
     model = load_model()
 except Exception as e:
-    st.error(
-        f"Error al cargar el archivo 'mimodelo.pkl'. Asegúrate de que esté en la raíz de tu repositorio: {e}"
-    )
+    st.error(f"Error al cargar el archivo 'mimodelo.pkl': {e}")
     st.stop()
 
 
-# Función para preprocesar la imagen
+# Preprocesamiento adaptable (2D aplanado o 4D tensor)
 def preprocess_image(image):
-    # Aseguramos formato RGB
-    img = image.convert("RGB")
-    # Redimensionar al tamaño estándar de entrada
-    img = img.resize((224, 224))
+    img = image.convert("RGB").resize((224, 224))
     img_array = np.array(img, dtype=np.float32)
 
-    # Escalado/normalización a [0, 1]
-    img_array = img_array / 255.0
+    # Vector aplanado para Scikit-Learn/XGBoost
+    flat_features = img_array.flatten().reshape(1, -1)
 
-    # Expandir dimensión para simular el lote (batch): (1, 224, 224, 3)
-    img_batch = np.expand_dims(img_array, axis=0)
-    return img_batch, img_array.flatten().reshape(1, -1)
+    # Tensor 4D para Keras/TensorFlow (normalizado)
+    tensor_features = np.expand_dims(img_array / 255.0, axis=0)
+
+    return flat_features, tensor_features
 
 
-# Cargar imagen
 uploaded_file = st.file_uploader(
     "Carga una imagen (JPG, PNG, JPEG)", type=["jpg", "jpeg", "png"]
 )
@@ -65,17 +56,16 @@ if uploaded_file is not None:
 
     if st.button("Realizar Predicción", type="primary"):
         with st.spinner("Procesando imagen..."):
-            img_batch, img_flat = preprocess_image(image)
+            flat_img, tensor_img = preprocess_image(image)
 
-            # Intentar predicción según la estructura del modelo
             try:
-                # Caso 1: Redes Neuronales / Keras (Esperan tensor 4D)
-                prediction = model.predict(img_batch)
+                # Intento 1: Modelo tradicional (Scikit-Learn / XGBoost)
+                prediction = model.predict(flat_img)
             except Exception:
-                # Caso 2: Scikit-learn / XGBoost (Esperan vector aplanado 2D)
-                prediction = model.predict(img_flat)
+                # Intento 2: Red Neuronal (TensorFlow / Keras)
+                prediction = model.predict(tensor_img)
 
-            # Extraer valor escalar de la predicción
+            # Formatear la predicción
             if isinstance(prediction, (list, np.ndarray)):
                 pred_val = prediction[0]
                 if isinstance(pred_val, (list, np.ndarray)):
@@ -83,8 +73,9 @@ if uploaded_file is not None:
             else:
                 pred_val = prediction
 
-            # Mostrar resultado
-            if float(pred_val) >= 0.5 or pred_val == 1:
+            pred_num = float(pred_val)
+
+            if pred_num >= 0.5 or pred_num == 1:
                 st.error("⚠️ **Resultado:** Posible Melanoma detectado.")
             else:
                 st.success("✅ **Resultado:** Posible Lesión Benigna.")
