@@ -1,11 +1,9 @@
-import io
 import pickle
-import zlib
-import joblib
 import numpy as np
 import streamlit as st
 from PIL import Image
 
+# Configuración de la aplicación
 st.set_page_config(
     page_title="Detección de Melanoma", page_icon="🩺", layout="centered"
 )
@@ -16,24 +14,20 @@ st.write(
 )
 
 
-# Carga con descompresión inteligente de cabecera
+# Carga sin Joblib para evitar '_io.BytesIO' object is not callable
 @st.cache_resource
 def load_model():
-    # Intento 1: Joblib nativo directo desde la ruta del archivo
+    # Opción A: Intentar des-serializar con TensorFlow / Keras si es una red neuronal
     try:
-        return joblib.load("mimodelo.pkl")
+        import tensorflow as tf
+
+        return tf.keras.models.load_model("mimodelo.pkl")
     except Exception:
         pass
 
-    # Intento 2: Lectura binaria y descompresión si la clave inicia con 'x' (zlib)
+    # Opción B: Carga con pickle estándar en lectura binaria
     with open("mimodelo.pkl", "rb") as f:
-        content = f.read()
-
-    if content.startswith(b"x"):
-        decompressed = zlib.decompress(content)
-        return pickle.loads(decompressed)
-
-    return pickle.loads(content)
+        return pickle.load(f)
 
 
 try:
@@ -48,10 +42,10 @@ def preprocess_image(image):
     img = image.convert("RGB").resize((224, 224))
     img_array = np.array(img, dtype=np.float32)
 
-    # Matriz 2D aplanada para Scikit-Learn / XGBoost
+    # Entrada 2D aplanada (Scikit-Learn / XGBoost)
     flat_features = img_array.flatten().reshape(1, -1)
 
-    # Tensor 4D normalizado para TensorFlow / Keras
+    # Entrada 4D normalizada [0, 1] (TensorFlow / Keras)
     tensor_features = np.expand_dims(img_array / 255.0, axis=0)
 
     return flat_features, tensor_features
@@ -70,9 +64,9 @@ if uploaded_file is not None:
             flat_img, tensor_img = preprocess_image(image)
 
             try:
-                prediction = model.predict(flat_img)
-            except Exception:
                 prediction = model.predict(tensor_img)
+            except Exception:
+                prediction = model.predict(flat_img)
 
             if isinstance(prediction, (list, np.ndarray)):
                 pred_val = prediction[0]
