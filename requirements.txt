@@ -2,4 +2,4 @@ streamlit
 pillow
 numpy
 scikit-learn
-joblib
+tensorflow-cpu
