@@ -1,8 +1,10 @@
+import pathlib
 import joblib
 import numpy as np
 import streamlit as st
 from PIL import Image
 
+# Configuración de página
 st.set_page_config(
     page_title="Detección de Melanoma", page_icon="🩺", layout="centered"
 )
@@ -13,11 +15,11 @@ st.write(
 )
 
 
-# Carga aislada forzando Joblib
+# Carga usando la ruta física exacta para evitar conflictos de BytesIO
 @st.cache_resource
 def load_model():
-    # Joblib gestiona internamente la descompresión binaria de sus propios .pkl
-    return joblib.load("mimodelo.pkl")
+    model_path = pathlib.Path(__file__).parent / "mimodelo.pkl"
+    return joblib.load(str(model_path))
 
 
 try:
@@ -27,20 +29,21 @@ except Exception as e:
     st.stop()
 
 
-# Función para preprocesar imagen
+# Preprocesamiento de imagen
 def preprocess_image(image):
     img = image.convert("RGB").resize((224, 224))
     img_array = np.array(img, dtype=np.float32)
 
-    # 1. Matriz aplanada para modelos de Scikit-Learn / XGBoost
+    # Matriz 2D para modelos tabular/Scikit-Learn
     flat_features = img_array.flatten().reshape(1, -1)
 
-    # 2. Tensor 4D normalizado para Keras / TensorFlow
+    # Tensor 4D normalizado [0, 1] para Keras/TensorFlow
     tensor_features = np.expand_dims(img_array / 255.0, axis=0)
 
     return flat_features, tensor_features
 
 
+# Cargar archivo de imagen
 uploaded_file = st.file_uploader(
     "Carga una imagen (JPG, PNG, JPEG)", type=["jpg", "jpeg", "png"]
 )
@@ -54,13 +57,13 @@ if uploaded_file is not None:
             flat_img, tensor_img = preprocess_image(image)
 
             try:
-                # Intento 1: Modelo tabular / Scikit-Learn
+                # Intento 1: Evaluador tipo Scikit-Learn
                 prediction = model.predict(flat_img)
             except Exception:
-                # Intento 2: Red neuronal / TensorFlow
+                # Intento 2: Evaluador tipo TensorFlow / Keras
                 prediction = model.predict(tensor_img)
 
-            # Extraer valor
+            # Formatear la predicción obtenida
             if isinstance(prediction, (list, np.ndarray)):
                 pred_val = prediction[0]
                 if isinstance(pred_val, (list, np.ndarray)):
