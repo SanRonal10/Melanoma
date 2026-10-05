@@ -1,6 +1,7 @@
 streamlit
 pillow
 numpy
-scikit-learn
+tensorflow
+keras
 joblib
 dill
