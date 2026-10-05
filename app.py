@@ -13,16 +13,11 @@ st.write(
 )
 
 
-# Carga con respaldo automático entre joblib y pickle
+# Carga aislada forzando Joblib
 @st.cache_resource
 def load_model():
-    try:
-        return joblib.load("mimodelo.pkl")
-    except Exception:
-        import pickle
-
-        with open("mimodelo.pkl", "rb") as f:
-            return pickle.load(f)
+    # Joblib gestiona internamente la descompresión binaria de sus propios .pkl
+    return joblib.load("mimodelo.pkl")
 
 
 try:
@@ -32,15 +27,15 @@ except Exception as e:
     st.stop()
 
 
-# Preprocesamiento adaptable (2D aplanado o 4D tensor)
+# Función para preprocesar imagen
 def preprocess_image(image):
     img = image.convert("RGB").resize((224, 224))
     img_array = np.array(img, dtype=np.float32)
 
-    # Vector aplanado para Scikit-Learn/XGBoost
+    # 1. Matriz aplanada para modelos de Scikit-Learn / XGBoost
     flat_features = img_array.flatten().reshape(1, -1)
 
-    # Tensor 4D para Keras/TensorFlow (normalizado)
+    # 2. Tensor 4D normalizado para Keras / TensorFlow
     tensor_features = np.expand_dims(img_array / 255.0, axis=0)
 
     return flat_features, tensor_features
@@ -59,13 +54,13 @@ if uploaded_file is not None:
             flat_img, tensor_img = preprocess_image(image)
 
             try:
-                # Intento 1: Modelo tradicional (Scikit-Learn / XGBoost)
+                # Intento 1: Modelo tabular / Scikit-Learn
                 prediction = model.predict(flat_img)
             except Exception:
-                # Intento 2: Red Neuronal (TensorFlow / Keras)
+                # Intento 2: Red neuronal / TensorFlow
                 prediction = model.predict(tensor_img)
 
-            # Formatear la predicción
+            # Extraer valor
             if isinstance(prediction, (list, np.ndarray)):
                 pred_val = prediction[0]
                 if isinstance(pred_val, (list, np.ndarray)):
