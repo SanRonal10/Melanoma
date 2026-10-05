@@ -1,6 +1,6 @@
-import joblib
 import numpy as np
 import streamlit as st
+import tensorflow as tf
 from PIL import Image
 
 # Configuración de la página
@@ -14,10 +14,17 @@ st.write(
 )
 
 
-# Carga segura del modelo pasando únicamente la ruta como string
+# Cargar el modelo con TensorFlow/Keras o pickle de respaldo
 @st.cache_resource
 def load_model():
-    return joblib.load("mimodelo.pkl")
+    try:
+        # Intento 1: Carga nativa de Keras/TensorFlow
+        return tf.keras.models.load_model("mimodelo.pkl")
+    except Exception:
+        import joblib
+
+        # Intento 2: Carga directa por joblib sin envoltorios
+        return joblib.load("mimodelo.pkl")
 
 
 try:
@@ -29,29 +36,23 @@ except Exception as e:
     st.stop()
 
 
-# Preprocesamiento de la imagen ingresada
+# Función para preprocesar la imagen
 def preprocess_image(image):
-    # Convertir a formato RGB
+    # Aseguramos formato RGB
     img = image.convert("RGB")
-
-    # Redimensionar a la resolución usada durante el entrenamiento (ej. 224x224)
+    # Redimensionamos a 224x224 (ajusta si entrenaste con otro tamaño)
     img = img.resize((224, 224))
     img_array = np.array(img, dtype=np.float32)
 
-    # Si tu modelo requiere un vector 1D (Scikit-Learn) o un tensor 4D (Keras/TensorFlow)
-    if hasattr(model, "predict"):
-        # Intentamos primero la forma estándar para Keras/TensorFlow (1, 224, 224, 3)
-        # Si usaste normalización de 0 a 1: img_array = img_array / 255.0
-        try:
-            return np.expand_dims(img_array, axis=0)
-        except Exception:
-            # Si falla, aplanamos para modelos tradicionales (1, N_features)
-            return img_array.flatten().reshape(1, -1)
+    # Normalización (de 0 a 1)
+    img_array = img_array / 255.0
 
-    return img_array
+    # Expandir dimensión para simular un lote: (1, 224, 224, 3)
+    img_batch = np.expand_dims(img_array, axis=0)
+    return img_batch
 
 
-# Interfaz para subida de imagen
+# Componente para subir la imagen
 uploaded_file = st.file_uploader(
     "Carga una imagen (JPG, PNG, JPEG)", type=["jpg", "jpeg", "png"]
 )
@@ -61,33 +62,27 @@ if uploaded_file is not None:
     st.image(image, caption="Imagen cargada", use_container_width=True)
 
     if st.button("Realizar Predicción", type="primary"):
-        with st.spinner("Procesando imagen..."):
+        with st.spinner("Analizando la imagen..."):
             processed_img = preprocess_image(image)
 
             try:
-                raw_pred = model.predict(processed_img)
+                # Realizar predicción con la red neuronal
+                predictions = model.predict(processed_img)
 
-                # Extraer el valor numérico de la predicción
-                if isinstance(raw_pred, (list, np.ndarray)):
-                    pred_val = raw_pred[0]
-                    if isinstance(pred_val, (list, np.ndarray)):
-                        pred_val = pred_val[0]
+                # Extraer el valor de predicción
+                prob = (
+                    float(predictions[0][0])
+                    if predictions.ndim > 1
+                    else float(predictions[0])
+                )
+
+                if prob >= 0.5:
+                    st.error(
+                        f"⚠️ **Resultado:** Posible Melanoma detectado ({prob*100:.2f}% de probabilidad)."
+                    )
                 else:
-                    pred_val = raw_pred
-
-                # Evaluar según umbral
-                if pred_val >= 0.5 or pred_val == 1:
-                    st.error("⚠️ **Resultado:** Posible Melanoma detectado.")
-                else:
-                    st.success("✅ **Resultado:** Posible Lesión Benigna.")
-
-            except Exception as err_pred:
-                # Si el modelo espera 1D aplanado en lugar de 4D
-                processed_img_flat = np.array(image.convert("RGB").resize((224, 224))).flatten().reshape(1, -1)
-                raw_pred = model.predict(processed_img_flat)
-                pred_val = raw_pred[0]
-
-                if pred_val >= 0.5 or pred_val == 1:
-                    st.error("⚠️ **Resultado:** Posible Melanoma detectado.")
-                else:
-                    st.success("✅ **Resultado:** Posible Lesión Benigna.")
+                    st.success(
+                        f"✅ **Resultado:** Posible Lesión Benigna ({(1-prob)*100:.2f}% de probabilidad)."
+                    )
+            except Exception as pred_err:
+                st.error(f"Error al procesar la predicción: {pred_err}")
