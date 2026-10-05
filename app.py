@@ -1,4 +1,5 @@
 import pickle
+import joblib
 import numpy as np
 import streamlit as st
 from PIL import Image
@@ -13,11 +14,14 @@ st.write(
 )
 
 
-# Carga usando pickle nativo en modo binario ("rb")
+# Carga dinámica probando Joblib primero (evita invalid load key)
 @st.cache_resource
 def load_model():
-    with open("mimodelo.pkl", "rb") as f:
-        return pickle.load(f)
+    try:
+        return joblib.load("mimodelo.pkl")
+    except Exception:
+        with open("mimodelo.pkl", "rb") as f:
+            return pickle.load(f)
 
 
 try:
@@ -27,7 +31,7 @@ except Exception as e:
     st.stop()
 
 
-# Preprocesamiento de la imagen
+# Preprocesamiento adaptable
 def preprocess_image(image):
     img = image.convert("RGB").resize((224, 224))
     img_array = np.array(img, dtype=np.float32)
@@ -35,7 +39,7 @@ def preprocess_image(image):
     # Matriz 2D aplanada (Scikit-Learn / XGBoost)
     flat_features = img_array.flatten().reshape(1, -1)
 
-    # Tensor 4D normalizado (TensorFlow / Keras)
+    # Tensor 4D normalizado [0, 1] (Keras / TensorFlow)
     tensor_features = np.expand_dims(img_array / 255.0, axis=0)
 
     return flat_features, tensor_features
