@@ -1,4 +1,6 @@
+import io
 import pickle
+import zlib
 import joblib
 import numpy as np
 import streamlit as st
@@ -14,14 +16,24 @@ st.write(
 )
 
 
-# Carga dinámica probando Joblib primero (evita invalid load key)
+# Carga con descompresión inteligente de cabecera
 @st.cache_resource
 def load_model():
+    # Intento 1: Joblib nativo directo desde la ruta del archivo
     try:
         return joblib.load("mimodelo.pkl")
     except Exception:
-        with open("mimodelo.pkl", "rb") as f:
-            return pickle.load(f)
+        pass
+
+    # Intento 2: Lectura binaria y descompresión si la clave inicia con 'x' (zlib)
+    with open("mimodelo.pkl", "rb") as f:
+        content = f.read()
+
+    if content.startswith(b"x"):
+        decompressed = zlib.decompress(content)
+        return pickle.loads(decompressed)
+
+    return pickle.loads(content)
 
 
 try:
@@ -31,15 +43,15 @@ except Exception as e:
     st.stop()
 
 
-# Preprocesamiento adaptable
+# Preprocesamiento de la imagen
 def preprocess_image(image):
     img = image.convert("RGB").resize((224, 224))
     img_array = np.array(img, dtype=np.float32)
 
-    # Matriz 2D aplanada (Scikit-Learn / XGBoost)
+    # Matriz 2D aplanada para Scikit-Learn / XGBoost
     flat_features = img_array.flatten().reshape(1, -1)
 
-    # Tensor 4D normalizado [0, 1] (Keras / TensorFlow)
+    # Tensor 4D normalizado para TensorFlow / Keras
     tensor_features = np.expand_dims(img_array / 255.0, axis=0)
 
     return flat_features, tensor_features
