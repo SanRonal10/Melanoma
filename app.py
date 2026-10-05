@@ -14,7 +14,7 @@ st.write(
 )
 
 
-# Cargar el modelo guardado utilizando joblib
+# Cargar modelo utilizando joblib/pickle
 @st.cache_resource
 def load_model():
     return joblib.load("mimodelo.pkl")
@@ -29,19 +29,23 @@ except Exception as e:
     st.stop()
 
 
-# Función para preprocesar la imagen ingresada
+# Preprocesamiento de la imagen para Redes Neuronales Keras
 def preprocess_image(image):
-    # Redimensiona según las dimensiones con las que entrenaste tu modelo (ej. 224x224)
-    img = image.resize((224, 224))
-    img_array = np.array(img)
+    # Aseguramos formato RGB
+    img = image.convert("RGB")
+    # Redimensionamos al tamaño típico de entrada de la red (ej. 224x224 o 150x150 según tu entrenamiento)
+    img = img.resize((224, 224))
+    img_array = np.array(img, dtype=np.float32)
 
-    # Aplanar la imagen para modelos de Scikit-Learn (1D array)
-    img_flat = img_array.flatten().reshape(1, -1)
+    # Normalización si entrenaste escalando píxeles de 0 a 1
+    img_array = img_array / 255.0
 
-    return img_flat
+    # Expandimos dimensión para simular el lote/batch: (1, 224, 224, 3)
+    img_batch = np.expand_dims(img_array, axis=0)
+    return img_batch
 
 
-# Carga de la imagen por el usuario
+# Componente para subir imagen
 uploaded_file = st.file_uploader(
     "Carga una imagen (JPG, PNG, JPEG)", type=["jpg", "jpeg", "png"]
 )
@@ -51,18 +55,15 @@ if uploaded_file is not None:
     st.image(image, caption="Imagen cargada", use_container_width=True)
 
     if st.button("Realizar Predicción", type="primary"):
-        with st.spinner("Procesando imagen con el modelo..."):
+        with st.spinner("Analizando la imagen con la red neuronal..."):
             processed_img = preprocess_image(image)
-            prediction = model.predict(processed_img)
+            raw_pred = model.predict(processed_img)
 
-            # Clasificación de la respuesta (Ajusta la lógica si 0 o 1 corresponden a otra etiqueta)
-            if prediction[0] == 1:
-                st.error("⚠️ **Resultado:** Posible Melanoma detectado.")
+            # Si el modelo devuelve una probabilidad sigmoide/softmax
+            prob = float(raw_pred[0][0]) if raw_pred.ndim > 1 else float(raw_pred[0])
+
+            # Umbral estándar a 0.5 (Ajusta la lógica si la clase 1 o 0 representa otra etiqueta)
+            if prob >= 0.5:
+                st.error(f"⚠️ **Resultado:** Posible Melanoma detectado ({prob*100:.2f}% probabilidad).")
             else:
-                st.success("✅ **Resultado:** Posible Lesión Benigna.")
-
-            # Mostrar probabilidad si el modelo soporta predict_proba
-            if hasattr(model, "predict_proba"):
-                probs = model.predict_proba(processed_img)
-                confianza = np.max(probs) * 100
-                st.info(f"Nivel de confianza de la predicción: {confianza:.2f}%")
+                st.success(f"✅ **Resultado:** Posible Lesión Benigna ({(1-prob)*100:.2f}% probabilidad).")
