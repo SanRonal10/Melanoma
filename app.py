@@ -1,9 +1,11 @@
-import pickle
+import os
+import gdown
+import joblib
 import numpy as np
 import streamlit as st
 from PIL import Image
 
-# Configuración de la aplicación
+# Configuración de página
 st.set_page_config(
     page_title="Detección de Melanoma", page_icon="🩺", layout="centered"
 )
@@ -13,27 +15,28 @@ st.write(
     "Sube una imagen de una lesión cutánea para evaluar si es benigna o melanoma."
 )
 
+# ---------------------------------------------------------
+# PEGA AQUÍ TU FILE ID DE GOOGLE DRIVE:
+DRIVE_FILE_ID = "1DOc2I8MRnelWOnssNkAGrSNd4zAkh5m8"
+MODEL_FILENAME = "mimodelo.pkl"
+# ---------------------------------------------------------
 
-# Carga sin Joblib para evitar '_io.BytesIO' object is not callable
+
 @st.cache_resource
 def load_model():
-    # Opción A: Intentar des-serializar con TensorFlow / Keras si es una red neuronal
-    try:
-        import tensorflow as tf
+    # Descarga el archivo solo si no existe en el contenedor de Streamlit
+    if not os.path.exists(MODEL_FILENAME):
+        url = f"https://drive.google.com/uc?id={DRIVE_FILE_ID}"
+        with st.spinner("Descargando modelo desde Google Drive..."):
+            gdown.download(url, MODEL_FILENAME, quiet=False)
 
-        return tf.keras.models.load_model("mimodelo.pkl")
-    except Exception:
-        pass
-
-    # Opción B: Carga con pickle estándar en lectura binaria
-    with open("mimodelo.pkl", "rb") as f:
-        return pickle.load(f)
+    return joblib.load(MODEL_FILENAME)
 
 
 try:
     model = load_model()
 except Exception as e:
-    st.error(f"Error al cargar el archivo 'mimodelo.pkl': {e}")
+    st.error(f"Error al cargar el archivo de modelo: {e}")
     st.stop()
 
 
@@ -42,10 +45,10 @@ def preprocess_image(image):
     img = image.convert("RGB").resize((224, 224))
     img_array = np.array(img, dtype=np.float32)
 
-    # Entrada 2D aplanada (Scikit-Learn / XGBoost)
+    # Matriz 2D aplanada (Scikit-Learn / XGBoost)
     flat_features = img_array.flatten().reshape(1, -1)
 
-    # Entrada 4D normalizada [0, 1] (TensorFlow / Keras)
+    # Tensor 4D normalizado (Keras / TensorFlow)
     tensor_features = np.expand_dims(img_array / 255.0, axis=0)
 
     return flat_features, tensor_features
@@ -64,9 +67,9 @@ if uploaded_file is not None:
             flat_img, tensor_img = preprocess_image(image)
 
             try:
-                prediction = model.predict(tensor_img)
-            except Exception:
                 prediction = model.predict(flat_img)
+            except Exception:
+                prediction = model.predict(tensor_img)
 
             if isinstance(prediction, (list, np.ndarray)):
                 pred_val = prediction[0]
